@@ -1,0 +1,21 @@
+PROJECT: AI BACKGROUND REMOVER (PHASE 1)
+DEVELOPER: HARSHAL
+ARCHITECTURE: MODULAR (LOGIC SEPARATED FROM UI)
+
+--- FOLDER STRUCTURE ---
+/My-BG-Project
+  ├── /utils
+  │     └── image_logic.py  <-- The "Engine" (AI Math)
+  ├── app.py                <-- The "Dashboard" (UI/Website)
+  └── assets/               <-- Storage for images
+
+--- HOW THE LOGIC WORKS ---
+1. INPUT: User uploads a selfie via Streamlit uploader.
+2. CONVERSION: Image is converted into raw 'bytes' data.
+3. AI ENGINE (U2-Net): The 'rembg' library scans the bytes, identifies the 
+   human subject, and changes all background pixels to 0% opacity.
+4. UI FEEDBACK: Streamlit shows a side-by-side view.
+5. EXPORT: Processed image is converted back to PNG for download.
+
+--- REQUIRED LIBRARIES ---
+pip install streamlit rembg pillow onnxruntime
