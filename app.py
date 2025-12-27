@@ -1,48 +1,58 @@
 import streamlit as st
 from PIL import Image
-from utils.image_logic import remove_background_logic
+from utils.image_logic import remove_background_logic, merge_background
 import io
 
-# 1. Page Config
-st.set_page_config(page_title="AI BG Remover", layout="centered")
+# 1. Page Configuration
+st.set_page_config(page_title="AI Virtual Travel", layout="centered")
+st.title("✈️ AI Virtual Travel Agent")
 
-st.title("✂️ Professional BG Remover")
-st.markdown("---")
-
-# 2. File Upload (Reduced width for cleaner look)
+# 2. Step 1: Upload Selfie
 uploaded_file = st.file_uploader("Upload your selfie...", type=["jpg", "png", "jpeg"])
 
 if uploaded_file:
-    # Open image
     user_img = Image.open(uploaded_file)
+    st.image(user_img, caption="1. Your Original Photo", width=350)
     
-    # Show Original (Smaller Size)
-    st.subheader("1. Original Image")
-    st.image(user_img, caption="Uploaded Photo", width=400)
-    
-    # 3. Processing Button
-    if st.button("🚀 Remove Background"):
-        with st.spinner("Processing..."):
-            # Call Logic Engine
-            final_output = remove_background_logic(user_img)
-            
-            # Save to 'Session State' so it doesn't disappear
-            st.session_state['result_img'] = final_output
-            st.success("Done!")
+    # 3. Step 2: Remove Background
+    if st.button("✂️ Remove Background"):
+        with st.spinner("Cutting you out..."):
+            st.session_state['transparent_img'] = remove_background_logic(user_img)
+            st.success("Background Removed!")
 
-    # 4. Display Result and Download
-    if 'result_img' in st.session_state:
-        st.subheader("2. Final Result")
-        st.image(st.session_state['result_img'], caption="Background Removed", width=400)
+    # 4. Step 3: Choose Location & Merge
+    if 'transparent_img' in st.session_state:
+        st.divider()
+        st.subheader("2. Where do you want to go?")
         
-        # Prepare for Download
-        buf = io.BytesIO()
-        st.session_state['result_img'].save(buf, format="PNG")
-        byte_im = buf.getvalue()
+        # Exact mapping of your files
+        bg_options = {
+            "Hawaii": "Hawaii image.jpg",
+            "Paris": "paris image.webp",
+            "Taj Mahal": "Taj Mahal.jpg"
+        }
         
-        st.download_button(
-            label="💾 Download PNG",
-            data=byte_im,
-            file_name="removed_bg.png",
-            mime="image/png"
-        )
+        # User selects friendly name
+        location_choice = st.selectbox("Select a destination:", list(bg_options.keys()))
+        
+        # Get the actual filename from the choice
+        actual_filename = bg_options[location_choice]
+
+        if st.button(f"🚀 Travel to {location_choice}!"):
+            with st.spinner(f"Flying to {location_choice}..."):
+                # Call the Logic with the EXACT filename
+                final_result = merge_background(st.session_state['transparent_img'], actual_filename)
+                
+                st.image(final_result, caption=f"You in {location_choice}!", width=500)
+                
+                # Prepare Download
+                buf = io.BytesIO()
+                final_result.save(buf, format="JPEG")
+                byte_im = buf.getvalue()
+                
+                st.download_button(
+                    label=f"💾 Download {location_choice} Photo",
+                    data=byte_im,
+                    file_name=f"trip_to_{location_choice}.jpg",
+                    mime="image/jpeg"
+                )
