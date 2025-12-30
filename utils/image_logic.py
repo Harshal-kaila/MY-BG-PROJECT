@@ -1,7 +1,6 @@
 from rembg import remove
 import io
-from PIL import Image, ImageFilter, ImageEnhance
-
+from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 
 def remove_background_logic(input_image):
     """Cuts the subject out and makes the background transparent."""
@@ -11,59 +10,65 @@ def remove_background_logic(input_image):
     clean_data = remove(raw_data)
     return Image.open(io.BytesIO(clean_data))
 
+def feather_edges(image, radius=3):
+    """
+    Softens the hard edges of the cutout to make it blend 
+    better with the background (removes the 'sticker' look).
+    """
+    # Create a mask from the alpha channel
+    mask = image.split()[3]
+    # Blur the mask slightly
+    mask = mask.filter(ImageFilter.GaussianBlur(radius))
+    # Put the blurred mask back
+    image.putalpha(mask)
+    return image
 
 def merge_background(subject_img, full_filename):
     """
-    Places the cut-out person onto a background in a more realistic way:
-    - Maintains background at full resolution
-    - Scales person proportionally based on background
-    - Adds subtle shadow for depth
-    - Positions person intelligently
+    Professional merging that:
+    1. Anchors subject to the BOTTOM (hides the torso cut).
+    2. Blurs background slightly (Portrait mode effect).
+    3. Colors matches slightly for realism.
     """
-    # Build the path
     bg_path = f"assets/{full_filename}"
     
-    # 1. Open background at full quality
+    # 1. Open Background
     background = Image.open(bg_path).convert("RGBA")
     bg_w, bg_h = background.size
     
-    # 2. Prepare subject
+    # --- PRO TIP: PORTRAIT MODE ---
+    # Slight blur on background makes the subject pop and hides depth mismatch
+    # (Like an iPhone Portrait photo)
+    background = background.filter(ImageFilter.GaussianBlur(2))
+
+    # 2. Prepare Subject
     subject = subject_img.convert("RGBA")
+    
+    # Apply feathering to remove hard "fake" edges
+    subject = feather_edges(subject, radius=2)
+    
     subj_w, subj_h = subject.size
     
-    # 3. Smart sizing: Person should be 30-45% of background height
-    # (This maintains realistic proportions)
-    target_height = int(bg_h * 0.42)
+    # 3. Smart Sizing Logic
+    # We want the subject to be roughly 60-75% of the frame height for a "Selfie" look
+    # This ensures high resolution is maintained
+    target_height = int(bg_h * 0.75) 
     scale_ratio = target_height / subj_h
     target_width = int(subj_w * scale_ratio)
     
-    # Resize subject with high-quality resampling
+    # High-quality resize (LANCZOS keeps it sharp)
     subject_resized = subject.resize((target_width, target_height), Image.Resampling.LANCZOS)
     
-    # 4. Create a subtle drop shadow for realism
-    shadow = Image.new('RGBA', subject_resized.size, (0, 0, 0, 0))
-    shadow_layer = Image.new('RGBA', subject_resized.size, (0, 0, 0, 80))  # Semi-transparent black
-    shadow.paste(shadow_layer, (0, 0), subject_resized)  # Use subject as mask
-    shadow = shadow.filter(ImageFilter.GaussianBlur(15))  # Blur the shadow
+    # 4. Positioning Logic (CRITICAL FIX)
+    # Position strictly at the BOTTOM to hide the flat cut of the torso
+    x_position = (bg_w - target_width) // 2
+    y_position = bg_h - target_height  # Exactly at the bottom line
     
-    # 5. Smart positioning: Bottom-center with margin
-    margin_bottom = int(bg_h * 0.08)  # 8% margin from bottom
-    x_position = (bg_w - target_width) // 2  # Center horizontally
-    y_position = bg_h - target_height - margin_bottom
+    # 5. Composite
+    # Create a new layer for the final image
+    final_image = Image.new("RGBA", background.size)
+    final_image.paste(background, (0, 0))
+    # Paste subject at the calculated position
+    final_image.paste(subject_resized, (x_position, y_position), subject_resized)
     
-    # Shadow offset (slightly down and to the right)
-    shadow_offset_x = x_position + 5
-    shadow_offset_y = y_position + 8
-    
-    # 6. Composite the layers
-    # First paste shadow
-    background.paste(shadow, (shadow_offset_x, shadow_offset_y), shadow)
-    # Then paste person on top
-    background.paste(subject_resized, (x_position, y_position), subject_resized)
-    
-    # 7. Optional: Slight sharpening to maintain quality
-    result = background.convert("RGB")
-    enhancer = ImageEnhance.Sharpness(result)
-    result = enhancer.enhance(1.1)  # Slight sharpening
-    
-    return result
+    return final_image.convert("RGB")
