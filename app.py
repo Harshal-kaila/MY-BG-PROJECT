@@ -21,7 +21,7 @@ if uploaded_file:
             st.session_state["transparent_img"] = transparent_img
             st.success("Background Removed!")
 
-    # If we already have a transparent image in session_state
+    # If we already have a transparent image
     if "transparent_img" in st.session_state:
         st.subheader("2. Background Removed Result")
 
@@ -45,7 +45,7 @@ if uploaded_file:
         )
 
         st.divider()
-        st.subheader("3. Or place yourself into a location")
+        st.subheader("3. Place yourself into a destination")
 
         # Exact mapping of your files
         bg_options = {
@@ -54,12 +54,11 @@ if uploaded_file:
             "Taj Mahal": "Taj Mahal.jpg",
         }
 
-        # User selects friendly name
+        # User selects destination
         location_choice = st.selectbox(
             "Select a destination:", list(bg_options.keys())
         )
 
-        # Get the actual filename from the choice
         actual_filename = bg_options[location_choice]
 
         if st.button(f"🚀 Travel to {location_choice}!"):
@@ -71,12 +70,12 @@ if uploaded_file:
                 st.image(
                     final_result,
                     caption=f"You in {location_choice}!",
-                    width=500,
+                    use_container_width=True,  # Show at full quality
                 )
 
-                # Prepare merged image for download
+                # Prepare high-quality download
                 buf_jpg = io.BytesIO()
-                final_result.save(buf_jpg, format="JPEG")
+                final_result.save(buf_jpg, format="JPEG", quality=95)  # High quality
                 merged_bytes = buf_jpg.getvalue()
 
                 st.download_button(
