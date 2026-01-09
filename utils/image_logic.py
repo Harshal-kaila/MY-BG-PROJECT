@@ -40,39 +40,36 @@ def match_colors(subject, background):
     )
     return subject.convert("RGB", matrix).convert("RGBA")
 
-def merge_with_background(subject_img, bg_filename):
-    """Composites the subject onto a background with lighting and shadows."""
-    # Load and prep background
-    bg_path = f"assets/{bg_filename}"
-    background = Image.open(bg_path).convert("RGBA")
+def match_colors(subject, background):
+    """Adjusts the selfie's lighting to match the background mood."""
+    # Ensure both are RGB for stat calculation
+    subj_rgb = subject.convert("RGB")
+    bg_rgb = background.convert("RGB")
     
-    # Standardize canvas size (e.g., 1080x1350 for high quality)
-    canvas_w, canvas_h = 1080, 1350
-    bg_resized = ImageOps.fit(background, (canvas_w, canvas_h), Image.Resampling.LANCZOS)
+    subj_stat = ImageStat.Stat(subj_rgb)
+    bg_stat = ImageStat.Stat(bg_rgb)
     
-    # Resize subject (approx 75% of canvas height)
-    subj_w, subj_h = subject_img.size
-    target_h = int(canvas_h * 0.75)
-    target_w = int(subj_w * (target_h / subj_h))
-    subject_resized = subject_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    # Calculate color ratios
+    r_ratio = bg_stat.mean[0] / (subj_stat.mean[0] + 1e-5)
+    g_ratio = bg_stat.mean[1] / (subj_stat.mean[1] + 1e-5)
+    b_ratio = bg_stat.mean[2] / (subj_stat.mean[2] + 1e-5)
     
-    # --- NATURAL FIT STEP 2: Color Matching ---
-    subject_resized = match_colors(subject_resized, bg_resized)
+    # Apply a gentle 30% correction
+    r_weight, g_weight, b_weight = 0.3, 0.3, 0.3
     
-    # Position (Centered at bottom)
-    x = (canvas_w - target_w) // 2
-    y = canvas_h - target_h
+    # We apply the transformation to the RGB version then put the alpha back
+    # This prevents the 'ValueError: image has wrong mode'
+    matrix = (
+        r_ratio * r_weight + (1 - r_weight), 0, 0, 0,
+        0, g_ratio * g_weight + (1 - g_weight), 0, 0,
+        0, 0, b_ratio * b_weight + (1 - b_weight), 0
+    )
     
-    # --- NATURAL FIT STEP 3: Subtle Drop Shadow ---
-    # Creates a very faint shadow to anchor the person to the ground
-    shadow = subject_resized.split()[-1].point(lambda p: p * 0.2)
-    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=20))
+    # Transform the RGB part
+    matched_rgb = subj_rgb.convert("RGB", matrix)
     
-    # Final Assembly
-    final_image = bg_resized.copy()
-    # Paste shadow slightly offset
-    final_image.paste((0,0,0,80), (x+5, y+10), mask=shadow)
-    # Paste subject using Alpha Composite for smooth blending
-    final_image.alpha_composite(subject_resized, (x, y))
+    # Put the original transparency (alpha) back onto the color-matched image
+    result = matched_rgb.convert("RGBA")
+    result.putalpha(subject.split()[-1])
     
-    return final_image.convert("RGB")
+    return result
