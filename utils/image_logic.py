@@ -1,105 +1,78 @@
 from rembg import remove
 import io
-from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+import numpy as np
+from PIL import Image, ImageFilter, ImageOps, ImageStat
 
-
-def remove_background_logic(input_image: Image.Image) -> Image.Image:
-    """Return subject with transparent background (PNG)."""
+def remove_background_logic(input_image):
+    """Removes background and applies edge softening (feathering)."""
     buf = io.BytesIO()
-    input_image.save(buf, format="PNG")
-    data = buf.getvalue()
-    cut = remove(data)
-    img = Image.open(io.BytesIO(cut)).convert("RGBA")
-    return img
+    input_image.save(buf, format='PNG')
+    input_data = buf.getvalue()
+    
+    # Remove background
+    output_data = remove(input_data)
+    result = Image.open(io.BytesIO(output_data)).convert("RGBA")
+    
+    # --- NATURAL FIT STEP 1: Edge Feathering ---
+    # We blur the alpha mask slightly so the edges aren't sharp/jagged
+    alpha = result.split()[-1]
+    alpha = alpha.filter(ImageFilter.GaussianBlur(radius=1.5))
+    result.putalpha(alpha)
+    
+    return result
 
+def match_colors(subject, background):
+    """Adjusts the selfie's lighting to match the background mood."""
+    # Get average color stats for both images
+    subj_stat = ImageStat.Stat(subject.convert("RGB"))
+    bg_stat = ImageStat.Stat(background.convert("RGB"))
+    
+    # Calculate color ratios (how much red, green, and blue to shift)
+    r_ratio = bg_stat.mean[0] / (subj_stat.mean[0] + 1e-5)
+    g_ratio = bg_stat.mean[1] / (subj_stat.mean[1] + 1e-5)
+    b_ratio = bg_stat.mean[2] / (subj_stat.mean[2] + 1e-5)
+    
+    # Apply a gentle 40% correction to avoid looking 'filtered'
+    matrix = (
+        r_ratio * 0.4 + 0.6, 0, 0, 0,
+        0, g_ratio * 0.4 + 0.6, 0, 0,
+        0, 0, b_ratio * 0.4 + 0.6, 0
+    )
+    return subject.convert("RGB", matrix).convert("RGBA")
 
-def _erode_alpha(img: Image.Image, radius: int = 2) -> Image.Image:
-    """Slightly shrink the alpha mask to remove halos around edges."""
-    if img.mode != "RGBA":
-        img = img.convert("RGBA")
-    r, g, b, a = img.split()
-    a = a.filter(ImageFilter.MinFilter(radius=radius))
-    img.putalpha(a)
-    return img
-
-
-def compose_portrait_canvas(
-    subject_img: Image.Image,
-    background_file: str,
-    canvas_ratio: float = 9 / 16,
-    blur_bg: bool = True,
-) -> Image.Image:
-    """
-    Create a vertical 'selfie-style' canvas:
-    - Canvas aspect is 9:16 (good for phone & web).
-    - Background is cropped & resized to fill canvas.
-    - Subject stays sharp; background can be blurred.
-    - Background is sized around the subject (same height).
-    """
-
-    # 1. Prepare subject (cutout)
-    subject = subject_img.convert("RGBA")
-    subject = _erode_alpha(subject, radius=2)
-
-    subj_w, subj_h = subject.size
-
-    # 2. Define canvas size based on subject height
-    #    Make canvas height ≈ subject height * 1.2 (headroom)
-    canvas_h = int(subj_h * 1.2)
-    canvas_w = int(canvas_h * canvas_ratio)
-
-    # Ensure canvas is at least as wide as subject
-    if canvas_w < subj_w:
-        canvas_w = subj_w
-        canvas_h = int(canvas_w / canvas_ratio)
-
-    # 3. Load and prepare background
-    bg = Image.open(f"assets/{background_file}").convert("RGB")
-    bg_w, bg_h = bg.size
-    bg_ratio = bg_w / bg_h
-
-    # Need to resize+crop background to exactly canvas size
-    if bg_ratio > canvas_ratio:
-        # Background is wider than canvas: match height, crop width
-        new_h = canvas_h
-        new_w = int(new_h * bg_ratio)
-    else:
-        # Background is taller: match width, crop height
-        new_w = canvas_w
-        new_h = int(new_w / bg_ratio)
-
-    bg_resized = bg.resize((new_w, new_h), Image.Resampling.LANCZOS)
-
-    # Center crop to canvas size
-    left = (new_w - canvas_w) // 2
-    top = (new_h - canvas_h) // 2
-    bg_cropped = bg_resized.crop((left, top, left + canvas_w, top + canvas_h))
-
-    if blur_bg:
-        bg_cropped = bg_cropped.filter(ImageFilter.GaussianBlur(2))
-
-    bg_cropped = bg_cropped.convert("RGBA")
-
-    # 4. Scale subject relative to canvas (keep natural size)
-    # Subject should occupy about 70% of canvas height.
-    target_h = int(canvas_h * 0.7)
-    scale = target_h / subj_h
-    target_w = int(subj_w * scale)
-    subject_resized = subject.resize((target_w, target_h), Image.Resampling.LANCZOS)
-
-    # 5. Position subject anchored to bottom
+def merge_with_background(subject_img, bg_filename):
+    """Composites the subject onto a background with lighting and shadows."""
+    # Load and prep background
+    bg_path = f"assets/{bg_filename}"
+    background = Image.open(bg_path).convert("RGBA")
+    
+    # Standardize canvas size (e.g., 1080x1350 for high quality)
+    canvas_w, canvas_h = 1080, 1350
+    bg_resized = ImageOps.fit(background, (canvas_w, canvas_h), Image.Resampling.LANCZOS)
+    
+    # Resize subject (approx 75% of canvas height)
+    subj_w, subj_h = subject_img.size
+    target_h = int(canvas_h * 0.75)
+    target_w = int(subj_w * (target_h / subj_h))
+    subject_resized = subject_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    
+    # --- NATURAL FIT STEP 2: Color Matching ---
+    subject_resized = match_colors(subject_resized, bg_resized)
+    
+    # Position (Centered at bottom)
     x = (canvas_w - target_w) // 2
-    y = canvas_h - target_h  # bottom aligned
-
-    # 6. Composite
-    final_img = bg_cropped.copy()
-    final_img.paste(subject_resized, (x, y), subject_resized)
-
-    # 7. Small global color/contrast tweaks (optional but keeps quality)
-    final_rgb = final_img.convert("RGB")
-    enhancer = ImageEnhance.Contrast(final_rgb)
-    final_rgb = enhancer.enhance(1.03)
-    enhancer = ImageEnhance.Color(final_rgb)
-    final_rgb = enhancer.enhance(1.02)
-
-    return final_rgb
+    y = canvas_h - target_h
+    
+    # --- NATURAL FIT STEP 3: Subtle Drop Shadow ---
+    # Creates a very faint shadow to anchor the person to the ground
+    shadow = subject_resized.split()[-1].point(lambda p: p * 0.2)
+    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=20))
+    
+    # Final Assembly
+    final_image = bg_resized.copy()
+    # Paste shadow slightly offset
+    final_image.paste((0,0,0,80), (x+5, y+10), mask=shadow)
+    # Paste subject using Alpha Composite for smooth blending
+    final_image.alpha_composite(subject_resized, (x, y))
+    
+    return final_image.convert("RGB")

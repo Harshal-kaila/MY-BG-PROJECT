@@ -1,59 +1,57 @@
 import streamlit as st
 from PIL import Image
-from utils.image_logic import remove_background_logic, compose_portrait_canvas
 import io
+from utils.image_logic import remove_background_logic, merge_with_background
 
-st.set_page_config(page_title="AI Virtual Travel", layout="centered")
-
+st.set_page_config(page_title="AI Virtual Travel", layout="wide")
 st.title("✈️ AI Virtual Travel Agent")
-st.write("Upload your selfie, remove background, and place yourself anywhere in the world.")
+st.markdown("Upload your selfie and transport yourself anywhere in the world!")
 
-uploaded_file = st.file_uploader(
-    "Upload a clear portrait photo (jpg/png):", type=["jpg", "jpeg", "png"]
-)
+# Initialize state
+if 'bg_removed' not in st.session_state:
+    st.session_state['bg_removed'] = None
+
+uploaded_file = st.file_uploader("📸 Step 1: Upload Selfie", type=['png','jpeg','jpg'])
 
 if uploaded_file:
-    original = Image.open(uploaded_file)
-    st.image(original, caption="Original Photo", width=300)
+    image = Image.open(uploaded_file)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.image(image, caption='Your Original Photo', use_container_width=True)
+    
+    if st.button('✂️ Remove Background'):
+        with st.spinner('Making cutout...'):
+            st.session_state['bg_removed'] = remove_background_logic(image)
+            st.success('Background removed perfectly!')
 
-    if st.button("1️⃣ Remove Background"):
-        with st.spinner("Removing background..."):
-            cutout = remove_background_logic(original)
-            st.session_state["cutout"] = cutout
-        st.success("Background removed!")
+    if st.session_state['bg_removed'] is not None:
+        with col2:
+            st.image(st.session_state['bg_removed'], caption='Clean Cutout', use_container_width=True)
+        
+        st.divider()
+        
+        # Background Selection
+        st.subheader("🌍 Step 2: Select Your Destination")
+        bg_options = {
+            "Hawaii Beach": "Hawaii image.jpg",
+            "Paris": "paris image.webp",
+            "Taj Mahal": "Taj Mahal.jpg"
+        }
+        selected_name = st.selectbox("Where do you want to go?", list(bg_options.keys()))
+        
+        if st.button('🚀 Create Travel Photo'):
+            with st.spinner('Matching colors and blending...'):
+                final = merge_with_background(st.session_state['bg_removed'], bg_options[selected_name])
+                st.session_state['final_image'] = final
+        
+        # Display and Download Result
+        if 'final_image' in st.session_state:
+            st.image(st.session_state['final_image'], caption='Your New Travel Photo!', use_container_width=True)
+            
+            buf = io.BytesIO()
+            st.session_state['final_image'].save(buf, format='JPEG', quality=95)
+            st.download_button("💾 Download High-Res Image", buf.getvalue(), "travel_result.jpg", "image/jpeg")
 
-if "cutout" in st.session_state:
-    st.divider()
-    st.subheader("2️⃣ Choose Background")
-
-    bg_map = {
-        "Hawaii Beach": "Hawaii image.jpg",
-        "Paris": "paris image.webp",
-        "Taj Mahal": "Taj Mahal.jpg",
-    }
-
-    place = st.selectbox("Select destination:", list(bg_map.keys()))
-    if st.button("2️⃣ Generate Final Photo"):
-        with st.spinner("Composing high‑quality image..."):
-            final_img = compose_portrait_canvas(
-                st.session_state["cutout"], bg_map[place]
-            )
-            st.session_state["final"] = final_img
-
-    if "final" in st.session_state:
-        st.image(
-            st.session_state["final"],
-            caption=f"You at {place}",
-            use_container_width=True,  # responsive on mobile / tablet / desktop
-        )
-
-        buf = io.BytesIO()
-        st.session_state["final"].save(
-            buf, format="JPEG", quality=100, subsampling=0
-        )
-        st.download_button(
-            "📥 Download High‑Quality JPEG",
-            data=buf.getvalue(),
-            file_name=f"trip_to_{place}.jpg",
-            mime="image/jpeg",
-        )
+st.markdown("---")
+st.caption("AI Logic: Edge Feathering + Linear Color Transfer + Alpha Compositing")
